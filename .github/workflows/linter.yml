@@ -1,65 +1,46 @@
-name: 'Lint Code'
+name: Build and deploy to IBM Cloud Foundry
 
-on:
-  push:
-    branches: [master, main]
-  pull_request:
-    branches: [master, main]
+on: workflow_dispatch
 
-jobs: # list of things to do
-  lint_function_js:
-    name: Linting JavaScript Function 
-    runs-on: ubuntu-latest 
-    steps: # list of steps
-      - name: Install NodeJS
-        uses: actions/setup-node@v3
-        with:
-          node-version: 16
+# Environment variables available to all jobs and steps in this workflow
+env:
+  IBM_CLOUD_REGION: us-south
+  IBM_CLOUD_GROUP: Default
+  IBM_CLOUD_SPACE: djangoapplicationserver-space
+  IBM_CLOUD_ORG: amulyadarpaneni@gmail.com
+  MANIFEST_NAME: manifest.yml
+  IBM_CLOUD_API: ${{secrets.IBM_CLOUD_API_KEY}}
 
-      - name: Code Checkout
-        uses: actions/checkout@v3
+defaults:
+  run:
+    working-directory: server
 
-      - name: Install Dependencies
-        run: npm install
-        working-directory: functions/sample/nodejs
-
-      - name: Code Linting
-        run: npm run lint
-        working-directory: functions/sample/nodejs
-    
-
-  lint_function_python:
-    name: Linting Python Function 
-    runs-on: ubuntu-latest 
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python 3.7
-        uses: actions/setup-python@v4
-        with:
-          python-version: 3.7
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pylint
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-      - name: Lint with Pylint
-        run: pylint *.py
-        working-directory: functions/sample/python
-
-  lint_django_server:
-    name: Linting Django Server 
+jobs:
+  setup-build-publish-deploy:
+    name: Setup, Build, Publish, and Deploy
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python 3.7
-        uses: actions/setup-python@v4
-        with:
-          python-version: 3.7
-      - name: Install dependencies
+      - uses: actions/checkout@v2
+      - name: Install IBM CLI
         run: |
-          python -m pip install --upgrade pip
-          pip install pylint
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-      - name: Lint with Pylint
-        run: pylint *.py
-        working-directory: server
+          curl -fsSL https://clis.cloud.ibm.com/install/linux | sh
+          ibmcloud --version
+          ibmcloud config --check-version=false
+        shell: bash
+      - name: Install CF plugin
+        run: ibmcloud cf install -f
+        shell: bash
+      - name: Log into IBM Cloud
+        run: |
+          ibmcloud login --apikey "$IBM_CLOUD_API" -r "$IBM_CLOUD_REGION" -g "$IBM_CLOUD_GROUP"
+        shell: bash
+      - name: Target CF
+        run: ibmcloud target --cf-api https://api.$IBM_CLOUD_REGION.cf.cloud.ibm.com -r $IBM_CLOUD_REGION -o $IBM_CLOUD_ORG -s $IBM_CLOUD_SPACE
+        shell: bash
+      - name: List all applications
+        run: ibmcloud cf apps
+        shell: bash
+      - name: Deploy manifest file
+        run: ibmcloud cf push -f ./$MANIFEST_NAME
+        shell: bash
